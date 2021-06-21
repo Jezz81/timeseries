@@ -17,6 +17,7 @@ class TimeSeries:
     century,year,month,day: either column headers or column cutoffs if no header
     data: dictionary of column cutoffs. key becomes column header
     keep_cols: Columns to keep, all others are discarded
+    prepend_filename: Prepend the 0th split('.') of the base filename to column headers
     '''
 
     def __init__(self, data_sources):
@@ -34,8 +35,8 @@ class TimeSeries:
                     tmp_dfs = []
                     for f in files:
                         full_path = os.path.join(ds, f)
-                        print(full_path)
                         if os.path.isfile(full_path):
+                            print('reading {0}'.format(full_path))
                             if schema['format'] == 'xlsx':
                                 df = self.__read_xlsx_file(full_path, schema)
                                 tmp_dfs.append(df)
@@ -48,6 +49,7 @@ class TimeSeries:
                     self.__dfs.append(df)
 
                 if os.path.isfile(ds):
+                    print('reading {0}'.format(ds))
                     if schema['format'] == 'xlsx':
                         df = self.__read_xlsx_file(ds, schema)
                         self.__dfs.append(df)
@@ -57,7 +59,7 @@ class TimeSeries:
                     else:
                         raise Exception('Format {0} is not recognised'.format(schema['format']))
             else:
-                print('{0} not found'.format(ds))
+                raise FileNotFoundError('{0} not found'.format(ds))
 
         all_dates = []
         for df in self.__dfs:
@@ -74,7 +76,6 @@ class TimeSeries:
 
     @staticmethod
     def __read_xlsx_file(filename, schema):
-        print('reading xlsx file {0}'.format(filename))
         header_row = schema.get('header', 0)
         sheet_name = schema.get('sheet_name', 'Data')
         date_col = schema['date']
@@ -84,9 +85,7 @@ class TimeSeries:
 
         fname_prepend = os.path.basename(filename)
         fname_prepend = ''.join(fname_prepend.split('.')[0:-2])
-        print(schema.get('prepend_filename',False))
         if schema.get('prepend_filename', False):
-            print(fname_prepend)
             df.rename(columns=lambda x: fname_prepend + x, inplace=True)
 
         return df
@@ -106,7 +105,6 @@ class TimeSeries:
         df = pd.read_csv(file_name, header=header_row, index_col=None, delimiter=delimiter, thousands=thousands,
                          engine='python')
 
-        print(header_row)
         if header_row == None and delimiter:
             raise ValueError('Header row must be specified if delimiter is not None')
 
@@ -165,8 +163,8 @@ class TimeSeries:
         df.reset_index(drop=True, inplace=True)
         df.set_index('date', inplace=True)
         fname_prepend = os.path.basename(file_name)
-        print(fname_prepend)
-        fname_prepend = ''.join(fname_prepend.split('.')[0:-2])
+
+        fname_prepend = ''.join(fname_prepend.split('.')[0])
         if schema.get('prepend_filename', False):
             df.rename(columns=lambda x: fname_prepend + x, inplace=True)
 
@@ -214,126 +212,20 @@ class TimeSeries:
             except ValueError:
                 pass
 
-def _get_lunar_progress(row):
-    new_moon_index_date =  dt.datetime(2001,1,25,0,5,30).timestamp() #Jan. 27, Wed 08:54 AM
-    lunar_cycle_seconds = 2551442.8
 
-    return ((row['date'].timestamp() - new_moon_index_date) % lunar_cycle_seconds)/lunar_cycle_seconds
+# if __name__ == '__main__':
+#
+#
+#     data_sources= {'USDJPY.FOREX.txt': {'header': 0, 'date': 'Date', 'header': 0,'delimiter':'\t','format': 'txt'},
+#                     'AUDUSD.xlsx': {'header': 0, 'date': 'Date', 'sheet_name': 'Data','format': 'xlsx'},
+#                     'Solar': {'header': None, 'year': [0, 2], 'month': [2, 4],
+#                                                               'day': [4, 6], 'data': {'AP': [43, 46]}, 'format': 'txt'},
+#                     'b03hist.xls': {'header': 10, 'date': 'Series ID',
+#                                                                     'sheet_name': 'Data', 'format': 'xlsx'}}
+#
+#
+#     timeseries = TimeSeries(data_sources)
+#     global_df = timeseries.return_df
+#     #global_df.dropna(inplace=True)
+#     global_df.to_excel('example.xlsx')
 
-def get_RSI(df,col,periods=14):
-    prices = []
-    index_vals = []
-    c = 0
-    # Add the closing prices to the prices list and make sure we start at greater than 2 dollars to reduce outlier calculations.
-    while c < len(df):
-        idx = df.index.values[c]
-        if df.at[idx,col] > float(2.00):  # Check that the closing price for this day is greater than $2.00
-            prices.append(df.at[idx,col])
-        c += 1
-        index_vals.append(idx)
-    # prices_df = pd.DataFrame(prices)  # Make a dataframe from the prices list
-    i = 0
-    upPrices=[]
-    downPrices=[]
-    #  Loop to hold up and down price movements
-    while i < len(prices):
-        if i == 0:
-            upPrices.append(0)
-            downPrices.append(0)
-        else:
-            if (prices[i]-prices[i-1])>0:
-                upPrices.append(prices[i]-prices[i-1])
-                downPrices.append(0)
-            else:
-                downPrices.append(prices[i]-prices[i-1])
-                upPrices.append(0)
-        i += 1
-    x = 0
-    avg_gain = []
-    avg_loss = []
-    #  Loop to calculate the average gain and loss
-    while x < len(upPrices):
-        if x <periods+1:
-            avg_gain.append(0)
-            avg_loss.append(0)
-        else:
-            sumGain = 0
-            sumLoss = 0
-            y = x-periods
-            while y<=x:
-                sumGain += upPrices[y]
-                sumLoss += downPrices[y]
-                y += 1
-            avg_gain.append(sumGain/(periods+1))
-            avg_loss.append(abs(sumLoss/(periods+1)))
-        x += 1
-    p = 0
-    RS = []
-    RSI = []
-    #  Loop to calculate RSI and RS
-    while p < len(prices):
-        if p <periods+1:
-            RS.append(0)
-            RSI.append(0)
-        else:
-            if avg_loss[p] == 0:
-                RSvalue = 100
-            else:
-                RSvalue = (avg_gain[p]/avg_loss[p])
-            RS.append(RSvalue)
-            RSI.append(100 - (100/(1+RSvalue)))
-        p+=1
-    #  Creates the csv for each stock's RSI and price movements
-    df_dict = {
-        'Prices' : prices,
-        'upPrices' : upPrices,
-        'downPrices' : downPrices,
-        'AvgGain' : avg_gain,
-        'AvgLoss' : avg_loss,
-        'RS' : RS,
-        'RSI' : RSI
-    }
-    complete_df = pd.DataFrame(df_dict,index=index_vals, columns = ['Prices', 'upPrices', 'downPrices', 'AvgGain','AvgLoss', 'RS', 'RSI'])
-
-    return complete_df
-
-
-
-if __name__ == '__main__':
-    # data_sources = {'/home/q/Development/Downloaders/Macro':{'header':0,'date':'Date','delimiter':'\t','format':'txt'},
-    #                 '/home/q/Development/Downloaders/Crypto/ADA-USD.CC.txt':{'header':0,'date':'Date','delimiter':'\t', 'format': 'txt'},
-    #                 '/home/q/Development/Downloaders/b03hist.xls':{'header':10,'date':'Series ID','sheet_name':'Data','format':'xlsx'},
-    #                 '/home/q/Development/Downloaders/Solar':{'header':-1,'year':[0,2],'month':[3,4],'day':[5,6],'AP':[43,46],'format':'txt'}}
-
-    '''
-                        '/home/q/Development/Downloaders/USDJPY.xlsx': {'header': 0, 'date': 'Date', 'sheet_name': 'Data',
-                                                                    'format': 'xlsx'},
-                    '/home/q/Development/Downloaders/AUDUSD.xlsx': {'header': 0, 'date': 'Date', 'sheet_name': 'Data',
-                                                                    'format': 'xlsx'},
-                    '/home/q/Development/Downloaders/Solar': {'header': None, 'year': [0, 2], 'month': [2, 4],
-                                                              'day': [4, 6], 'data': {'AP': [43, 46]}, 'format': 'txt'},
-                    '/home/q/Development/Downloaders/b03hist.xls': {'header': 10, 'date': 'Series ID',
-                                                                    'sheet_name': 'Data', 'format': 'xlsx'}
-    '''
-
-    data_sources = {'/home/enki/Development/Downloaders/Macro/GSPC.INDX.txt': {'header': 0, 'date': 'Date', 'delimiter':'\t',
-                                                                  'format': 'txt', 'prepend_filename': False},
-                    '/home/enki/Development/Downloaders/Macro/USDJPY.FOREX.txt': {'header': 0, 'date': 'Date', 'delimiter': '\t',
-                                                                      'format': 'txt', 'prepend_filename': False}
-                    }
-
-    timeseries = TimeSeries(data_sources)
-
-    global_df = timeseries.return_df
-    #global_df['AP'] = global_df['AP'].apply(float)
-    global_df.dropna(inplace=True)
-    RSI = get_RSI(global_df, 'GSPC.INDX', periods=7)
-    global_df = global_df.join(RSI['RSI'],rsuffix='_7')
-    RSI = get_RSI(global_df,'GSPC.INDX',periods=14)
-    global_df = global_df.join(RSI['RSI'],rsuffix='_14')
-    RSI = get_RSI(global_df, 'GSPC.INDX', periods=21)
-    global_df = global_df.join(RSI['RSI'],rsuffix='_21')
-    global_df['date'] = global_df.index.values
-    global_df['LunarProgress'] = global_df.apply(_get_lunar_progress,axis=1)
-    global_df.to_excel('all3.xlsx')
-    global_df.dropna(inplace=True)
