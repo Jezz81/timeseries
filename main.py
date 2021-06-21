@@ -106,7 +106,8 @@ class TimeSeries:
         df = pd.read_csv(file_name, header=header_row, index_col=None, delimiter=delimiter, thousands=thousands,
                          engine='python')
 
-        if not header_row and delimiter:
+        print(header_row)
+        if header_row == None and delimiter:
             raise ValueError('Header row must be specified if delimiter is not None')
 
         if header_row and not date_col:
@@ -164,6 +165,7 @@ class TimeSeries:
         df.reset_index(drop=True, inplace=True)
         df.set_index('date', inplace=True)
         fname_prepend = os.path.basename(file_name)
+        print(fname_prepend)
         fname_prepend = ''.join(fname_prepend.split('.')[0:-2])
         if schema.get('prepend_filename', False):
             df.rename(columns=lambda x: fname_prepend + x, inplace=True)
@@ -212,6 +214,12 @@ class TimeSeries:
             except ValueError:
                 pass
 
+def _get_lunar_progress(row):
+    new_moon_index_date =  dt.datetime(2001,1,25,0,5,30).timestamp() #Jan. 27, Wed 08:54 AM
+    lunar_cycle_seconds = 2551442.8
+
+    return ((row['date'].timestamp() - new_moon_index_date) % lunar_cycle_seconds)/lunar_cycle_seconds
+
 def get_RSI(df,col,periods=14):
     prices = []
     index_vals = []
@@ -223,7 +231,6 @@ def get_RSI(df,col,periods=14):
             prices.append(df.at[idx,col])
         c += 1
         index_vals.append(idx)
-    df.to_excel('test2.xlsx')
     # prices_df = pd.DataFrame(prices)  # Make a dataframe from the prices list
     i = 0
     upPrices=[]
@@ -269,7 +276,10 @@ def get_RSI(df,col,periods=14):
             RS.append(0)
             RSI.append(0)
         else:
-            RSvalue = (avg_gain[p]/avg_loss[p])
+            if avg_loss[p] == 0:
+                RSvalue = 100
+            else:
+                RSvalue = (avg_gain[p]/avg_loss[p])
             RS.append(RSvalue)
             RSI.append(100 - (100/(1+RSvalue)))
         p+=1
@@ -284,8 +294,6 @@ def get_RSI(df,col,periods=14):
         'RSI' : RSI
     }
     complete_df = pd.DataFrame(df_dict,index=index_vals, columns = ['Prices', 'upPrices', 'downPrices', 'AvgGain','AvgLoss', 'RS', 'RSI'])
-
-    complete_df.to_excel('test.xlsx')
 
     return complete_df
 
@@ -308,9 +316,10 @@ if __name__ == '__main__':
                                                                     'sheet_name': 'Data', 'format': 'xlsx'}
     '''
 
-    data_sources = {'/home/q/Development/Downloaders/GSPC.xlsx': {'header': 0, 'date': 'Date', 'sheet_name': 'Data',
-                                                                  'format': 'xlsx', 'prepend_filename': True}
-
+    data_sources = {'/home/enki/Development/Downloaders/Macro/GSPC.INDX.txt': {'header': 0, 'date': 'Date', 'delimiter':'\t',
+                                                                  'format': 'txt', 'prepend_filename': False},
+                    '/home/enki/Development/Downloaders/Macro/USDJPY.FOREX.txt': {'header': 0, 'date': 'Date', 'delimiter': '\t',
+                                                                      'format': 'txt', 'prepend_filename': False}
                     }
 
     timeseries = TimeSeries(data_sources)
@@ -324,5 +333,7 @@ if __name__ == '__main__':
     global_df = global_df.join(RSI['RSI'],rsuffix='_14')
     RSI = get_RSI(global_df, 'GSPC.INDX', periods=21)
     global_df = global_df.join(RSI['RSI'],rsuffix='_21')
+    global_df['date'] = global_df.index.values
+    global_df['LunarProgress'] = global_df.apply(_get_lunar_progress,axis=1)
     global_df.to_excel('all3.xlsx')
     global_df.dropna(inplace=True)
